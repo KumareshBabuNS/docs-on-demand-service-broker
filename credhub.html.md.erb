@@ -185,6 +185,46 @@ instance_groups:
 
 ```
 
+## Deploying service instances with no secrets
+
+On-Demand Broker is able to provision service instances with manifests that do
+not contain secrets. The operator can configure whether to enable this feature
+via the `service_catalog.global_properties.config_server_manifest` property.
+This property is passed to the service adapter which can return manifests that
+contain config server tokens in the place of secrets. These secrets are then
+generated and stored in the config server when deployed by ODB.
+
+An example deployment YAML snippet with `config_server_manifest` turned on:
+```yaml
+service_catalog:
+  id: redis-service
+  service_name: redis
+  service_description: Redis Dedicated Instance
+  bindable: true
+  plan_updatable: true
+  metadata:
+    display_name: Redis
+  tags:
+    - redis
+  global_properties:
+    config_server_manifest: true
+```
+
+The service adapter `GenerateManifest` function will receive the `config_server_manifest`
+property on `plan properties`. When this property is absent or set to false,
+the adapter should return a manifest that does not use config server tokens.
+See example implementation for a [redis service adapter release](https://github.com/pivotal-cf-experimental/redis-example-service-adapter/blob/fddc5d3d0a40b86ed3aaa74a540ef5209371d64f/adapter/redis_manifest_generator.go#L273).
+
+#### Existing Service Instances
+
+Once ODB is configured to use the config server, new service instances will be deployed
+without secrets.
+
+When an existing service is updated and the previous manifest does not contain
+config server tokens, the service author should decide on the behaviour.
+
+Service authors must document the migration of previous manifest properties for operators.
+
 ## Enabling/Disabling Credhub support for service bindings
 
 To enable Credhub support for service binding credentials you can configure a new Credhub property in the broker manifest.
