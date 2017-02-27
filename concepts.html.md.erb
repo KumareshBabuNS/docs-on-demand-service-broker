@@ -6,25 +6,122 @@ owner: London Services Enablement
 These sequence diagrams in this topic show how an on-demand service sets up and maintains service instances, indicating which tasks are undertaken by the on-demand broker (ODB) and which require interaction with the Service Adapter.
 
 ## <a id="catalog"></a>Register Service Broker with Cloud Foundry
-<%= partial './mmd/service_catalog_workflow.mmd' %>
+
+<div class="mermaid">
+  sequenceDiagram
+    User->>Cloud Foundry:cf create-service-broker
+    Cloud Foundry->>ODB:GET catalog
+    ODB->>Cloud Foundry:catalog
+    Cloud Foundry->>User:OK
+</div>
+
 
 ## <a id="create-service-instance"></a>Create Service Instance
 
 Note that there are two ways this can fail: synchronously and asynchronously. When it fails synchronously, the Cloud Controller will subsequently delete the service according to its [orphan mitigation strategy](http://docs.cloudfoundry.org/services/api.html#orphans). In the case when it fails asynchronously (e.g. while BOSH deploys the service instance), the Cloud Controller won't issue a delete request.
 
-<%= partial './mmd/create_service_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->> Cloud Foundry: cf create-service
+    Cloud Foundry->> ODB: POST instance (create)
+    ODB->>Service Adapter: generate-manifest
+    Service Adapter->>ODB: manifest
+    ODB->>BOSH: deploy
+    BOSH->>ODB: accepted
+    ODB->>Cloud Foundry: accepted
+    Cloud Foundry->>User: create in progress
+    loop until bosh task is complete
+      Cloud Foundry->>ODB: GET last operation
+      ODB->>BOSH: GET deploy task
+      BOSH->>ODB: task in progress
+      ODB->>Cloud Foundry: create in progress
+    end
+    Cloud Foundry->>ODB: GET last operation
+    ODB->>BOSH: GET task
+    BOSH->>ODB: task done
+    ODB->>BOSH: run post-deploy errand
+    BOSH->>ODB: accepted
+    loop until bosh task errand is complete
+      Cloud Foundry->>ODB:GET last operation
+      ODB->>BOSH:GET errand task
+      BOSH->>ODB:task in progress
+      ODB->>Cloud Foundry:create in progress
+    end
+    Cloud Foundry->>ODB:GET last operation
+    ODB->>BOSH:GET errand task
+    BOSH->>ODB:task done
+    ODB->>Cloud Foundry:create succeeded
+    User->>Cloud Foundry:cf service
+    Cloud Foundry->>User: create succeeded
+</div>
+
 
 ## <a id="delete-service-instance"></a>Delete Service Instance
 
 In the delete service workflow the service adapter is not invoked.
 
-<%= partial './mmd/delete_service_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->>Cloud Foundry:cf delete-service
+    Cloud Foundry->>ODB:DELETE instance
+    ODB->>BOSH:delete deployment
+    BOSH->>ODB:accepted
+    ODB->>Cloud Foundry:accepted
+    Cloud Foundry->>User: delete in progress
+    loop until bosh task is complete
+      Cloud Foundry->>ODB: GET last operation
+      ODB->>BOSH: GET task
+      BOSH->>ODB: task in progress
+      ODB->>Cloud Foundry: delete in progress
+    end
+    Cloud Foundry->>ODB: GET last operation
+    ODB->>BOSH: GET task
+    BOSH->>ODB: task done
+    ODB->>Cloud Foundry: delete succeeded
+    User->>Cloud Foundry:cf service
+    Cloud Foundry->>User: not found
+</div>
+
+
 
 ## <a id="post-deploy"></a>Create/Update Service Instance with Post-Deploy Errand
 
 ODB will not report create/update succeeded to Cloud Foundry until both the deployment and post-deploy errand have completed successfully.
 
-<%= partial './mmd/create_post_deploy_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->> Cloud Foundry: cf create-service
+    Cloud Foundry->> ODB: POST instance (create)
+    ODB->>Service Adapter: generate-manifest
+    Service Adapter->>ODB: manifest
+    ODB->>BOSH: deploy
+    BOSH->>ODB: accepted
+    ODB->>Cloud Foundry: accepted
+    Cloud Foundry->>User: create in progress
+    loop until bosh task is complete
+      Cloud Foundry->>ODB: GET last operation
+      ODB->>BOSH: GET deploy task
+      BOSH->>ODB: task in progress
+      ODB->>Cloud Foundry: create in progress
+    end
+    Cloud Foundry->>ODB: GET last operation
+    ODB->>BOSH: GET task
+    BOSH->>ODB: task done
+    ODB->>BOSH: run post-deploy errand
+    BOSH->>ODB: accepted
+    loop until bosh task errand is complete
+      Cloud Foundry->>ODB:GET last operation
+      ODB->>BOSH:GET errand task
+      BOSH->>ODB:task in progress
+      ODB->>Cloud Foundry:create in progress
+    end
+    Cloud Foundry->>ODB:GET last operation
+    ODB->>BOSH:GET errand task
+    BOSH->>ODB:task done
+    ODB->>Cloud Foundry:create succeeded
+    User->>Cloud Foundry:cf service
+    Cloud Foundry->>User: create succeeded
+</div>
 
 ## <a id="update-service-instance"></a>Update Service Instance
 
@@ -32,32 +129,153 @@ Updates can only proceed if the existing service instance is up-to-date. ODB cal
 
 ### <a id="update-service-instance-with-changes"></a>When There Are Pending Changes
 
-<%= partial './mmd/update_service_with_pending_changes_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->> Cloud Foundry: cf update-service -c '{"some":"config"}'
+    Cloud Foundry->> ODB: PATCH instance (update)
+    ODB->>BOSH:GET manifest
+    BOSH->>ODB:previous manifest
+    ODB->>Service Adapter: generate-manifest (without request parameters)
+    Service Adapter->>ODB: manifest
+    ODB->>Cloud Foundry: update failed, pending changes detected
+    Cloud Foundry->>User: update failed, pending changes detected
+</div>
+
+
 
 ### <a id="update-service-instance-no-changes"></a>When There Are No Pending Changes
 
 The manifest from the second call to `generate-manifest` is deployed.
 
-<%= partial './mmd/update_service_no_pending_changes_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->> Cloud Foundry: cf update-service -c '{"some":"config"}'
+    Cloud Foundry->> ODB: PATCH instance (update)
+    ODB->>BOSH:GET manifest
+    BOSH->>ODB:previous manifest
+    ODB->>Service Adapter: generate-manifest (without request parameters)
+    Service Adapter->>ODB: manifest
+    ODB->>Service Adapter: generate-manifest (with request parameters)
+    Service Adapter->>ODB: manifest
+    ODB->>BOSH: deploy
+    BOSH->>ODB: accepted
+    ODB->>Cloud Foundry: accepted
+    Cloud Foundry->>User: update in progress
+    loop until bosh task is complete
+      Cloud Foundry->>ODB:GET last operation
+      ODB->>BOSH:GET task
+      BOSH->>ODB:task in progress
+      ODB->>Cloud Foundry:update in progress
+    end
+    Cloud Foundry->>ODB:GET last operation
+    ODB->>BOSH:GET task
+    BOSH->>ODB:task done
+    ODB->>Cloud Foundry:update succeeded
+    User->>Cloud Foundry: cf service
+    Cloud Foundry->>User: update succeeded
+</div>
+
+
 
 ## <a id="upgrade-service-instance"></a>Upgrade Service Instance
 
-<%= partial './mmd/upgrade_service_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->> Cloud Foundry: cf update-service -c '{"apply-changes":true}'
+    Cloud Foundry->> ODB: PATCH instance (update)
+    ODB->>BOSH:GET manifest
+    BOSH->>ODB:previous manifest
+    ODB->>Service Adapter: generate-manifest
+    Service Adapter->>ODB: manifest
+    ODB->>BOSH: deploy
+    BOSH->>ODB: accepted
+    ODB->>Cloud Foundry: accepted
+    Cloud Foundry->>User: update in progress
+    loop until bosh task is complete
+      Cloud Foundry->>ODB:GET last operation
+      ODB->>BOSH:GET task
+      BOSH->>ODB:task in progress
+      ODB->>Cloud Foundry:update in progress
+    end
+    Cloud Foundry->>ODB:GET last operation
+    ODB->>BOSH:GET task
+    BOSH->>ODB:task done
+    ODB->>Cloud Foundry:update succeeded
+    User->>Cloud Foundry: cf service
+    Cloud Foundry->>User: update succeeded
+</div>
+
 
 ## <a id="bind"></a>Bind
-<%= partial './mmd/bind_service_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    User->>Cloud Foundry:cf bind-service
+    Cloud Foundry->>ODB:PUT binding
+    ODB->>Service Adapter:create-binding
+    Service Adapter->>ODB:binding credentials
+    ODB->>Cloud Foundry:binding credentials
+    Cloud Foundry->>User:OK
+</div>
 
 ## <a id="unbind"></a>Unbind
-<%= partial './mmd/unbind_service_workflow.mmd' %>
+
+<div class="mermaid">
+  sequenceDiagram
+    User->>Cloud Foundry:cf unbind-service
+    Cloud Foundry->>ODB:DELETE binding
+    ODB->>Service Adapter:delete-binding
+    Service Adapter->>ODB:exit 0
+    ODB->>Cloud Foundry:OK
+    Cloud Foundry->>User:OK
+</div>
 
 ## <a id="upgrade-all-instances"></a>Upgrade All Service Instances
 
 ODB provides BOSH errand to upgrade all the instances managed by the broker. This can also be used in the scenario when a plan changes; this errand will update all instances that implement the plan with the new plan definition.
 
-<%= partial './mmd/upgrade_all_instances_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    Operator->>Upgrade Errand:bosh run errand upgrade-all-service-instances
+    Upgrade Errand->>CF:GET instances
+    CF->>Upgrade Errand:instances
+    loop for all instances
+      Upgrade Errand->>ODB: PATCH instance (upgrade)
+      ODB->>Service Adapter: generate-manifest
+      Service Adapter->>ODB: manifest
+      ODB->>BOSH: deploy
+      BOSH->>ODB: accepted
+      ODB->>Upgrade Errand: accepted
+      Note over Upgrade Errand,BOSH: Upgrade Errand polls ODB for last operation until complete
+    end
+    Upgrade Errand->>Operator:completed successfully
+</div>
 
 ## <a id="delete-all-instances"></a>Delete All Service Instances
 
 ODB provides BOSH errand to delete all the instances managed by the broker.
 
-<%= partial './mmd/delete_all_instances_workflow.mmd' %>
+<div class="mermaid">
+  sequenceDiagram
+    Operator->>Delete Errand:bosh run errand delete-all-service-instances
+    Delete Errand->>CF:GET instances
+    CF->>Delete Errand:instances
+    loop for all instances
+      Delete Errand->>CF:GET bindings
+      CF->>Delete Errand:bindings
+      loop for all bindings
+      Delete Errand->>CF:cf unbind-service
+        CF->>ODB: DELETE binding
+        ODB->>Service Adapter:delete-binding
+        Service Adapter->>ODB:exit code 0
+        ODB->>CF:OK
+        CF->>Delete Errand:OK
+      end
+      Delete Errand->>CF:cf delete-service
+      CF->>ODB:DELETE instance
+      ODB->>BOSH:delete deployment
+      BOSH->>ODB:accepted
+      ODB->>CF:accepted
+      CF->>Delete Errand:completed
+    end
+    Delete Errand->>Operator:completed successfully
+</div>
